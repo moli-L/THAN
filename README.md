@@ -50,3 +50,5 @@ python learn_edge_new.py -d movielens --bs 500 --n_degree 8 --n_epoch 30 --lr 1e
 python learn_edge_new.py -d twitter --bs 800 --n_degree 10 --n_epoch 20 --lr 1e-4 --gpu 0
 ```
 
+If the memory size of your GPU is less than 24GB, please reduce the batch size.
+
