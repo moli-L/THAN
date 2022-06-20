@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 ### Dataset
 
-Create a folder 'data' to store source data files.
+Create a folder `data` to store source data files.
 
 ### Preprocess the data
 
