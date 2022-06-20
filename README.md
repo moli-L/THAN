@@ -23,6 +23,11 @@ pip install -r requirements.txt
 
 Create a folder `data` to store source data files.
 
+Download dataset from:
+- [https://grouplens.org/datasets/movielens/100k](https://grouplens.org/datasets/movielens/100k)
+- [http://snap.stanford.edu/data/higgs-twitter.html](http://snap.stanford.edu/data/higgs-twitter.html)
+- [http://snap.stanford.edu/data/sx-mathoverflow.html](http://snap.stanford.edu/data/sx-mathoverflow.html)
+
 ### Preprocess the data
 
 If there is no data in `processed` folder, run
