@@ -1,0 +1,9 @@
+{
+    "num_node": 2625,
+    "num_edge": 80000,
+    "num_edge_test": 20000,
+    "num_node_type": 2,
+    "num_edge_type": 5,
+    "num_node_u": 943,
+    "num_node_v": 1682
+}
