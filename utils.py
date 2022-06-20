@@ -116,7 +116,7 @@ class RandHetEdgeSampler(object):
 
 
 class HetMiniBatchSampler(object):
-    def __init__(self, num_etype, etype_list, batch_size, shuffle=False, pad_percent=0, hint="train"):
+    def __init__(self, num_etype, etype_list, batch_size, shuffle=False, pad_percent=9, hint="train"):
         """ padding the first i/10 events on ts, just use the other (10-i)/10 events for training """
         assert 0<=pad_percent<10, "padd should be in [0, 10) "
         self.padding = 0
@@ -199,6 +199,13 @@ def get_args():
         sys.exit(0)
     
     return args
+
+
+def check_dirs():
+    if not os.path.exists("saved_models"):
+        os.mkdir("saved_models")
+    if not os.path.exists("saved_checkpoints"):
+        os.mkdir("saved_checkpoints")
 
 
 def get_logger(name="THAN"):

@@ -31,6 +31,8 @@ SHUFFLE = True # args.shuffle
 MODEL_SAVE_PATH = f'./saved_models/{args.prefix}-{args.data}.pth'
 get_checkpoint_path = lambda epoch: f'./saved_checkpoints/{args.prefix}-{args.data}-{epoch}.pth'
 
+utils.check_dirs()
+
 logger = utils.get_logger(args.prefix+"_new_"+args.data)
 logger.info(args)
 
@@ -49,7 +51,7 @@ def evaluate_score(size, pos_prob, neg_prob):
 
 def eval_one_epoch(hint, than: THAN, sampler: RandHetEdgeSampler, batch_sampler: HetMiniBatchSampler, data):
     logger.info(hint)
-    val_auc, val_ap = [], [], []
+    val_auc, val_ap = [], []
     with torch.no_grad():
         than = than.eval()
         batch_sampler.reset()
@@ -121,7 +123,7 @@ best_auc, best_ap = 0., 0.
 for epoch in range(NUM_EPOCH):
     # training use only training graph
     than.ngh_finder = train_ngh_finder
-    auc, ap, m_loss = [], [], [], []
+    auc, ap, m_loss = [], [], []
     logger.info('start {} epoch'.format(epoch))
     train_batch_sampler.reset()
     while True:
