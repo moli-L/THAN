@@ -1,6 +1,4 @@
 # THAN
-Code for "Transformer-based Representation Learning on Temporal Heterogeneous Graphs".
-
 
 # Requirements
 Dependencies (with python >= 3.9):
