@@ -115,8 +115,47 @@ class RandHetEdgeSampler(object):
         return dst_index
 
 
+class MiniBatchSampler(object):
+    def __init__(self, num_inst, batch_size, shuffle=False, pad_percent=0, hint="train"):
+        """ padding the first i/10 events on ts, just use the other (10-i)/10 events for training """
+        assert 0<=pad_percent<10, "padd should be in [0, 10) "
+        self.padding = 0
+        if hint == 'train':
+            self.padding = pad_percent * num_inst // 10
+
+        self.num_inst = num_inst
+        self.num_batch = math.ceil(self.num_inst / batch_size)
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.hint = hint
+        logger = logging.getLogger(self.__class__.__name__)
+        logger.info('num of {} instances: {}'.format(hint, self.num_inst))
+        logger.info('num of batches per epoch: {}'.format(self.num_batch))
+        self.idx_list = np.arange(self.padding, self.num_inst)
+        if shuffle:
+            np.random.shuffle(self.idx_list)
+        self.cur_batch = 0
+        
+        
+    def get_batch_index(self):
+        if self.cur_batch > self.num_batch:
+            return None
+
+        s_idx = self.cur_batch * self.batch_size
+        e_idx = min(len(self.idx_list) - 1, s_idx + self.batch_size)
+        res_idx = self.idx_list[s_idx:e_idx]
+        self.cur_batch += 1
+        print(f"{self.hint} batch {self.cur_batch}/{self.num_batch}\t\r", end='')
+        return res_idx
+
+    def reset(self):
+        self.cur_batch = 0
+        if self.shuffle:
+            np.random.shuffle(self.idx_list)
+
+
 class HetMiniBatchSampler(object):
-    def __init__(self, num_etype, etype_list, batch_size, shuffle=False, pad_percent=9, hint="train"):
+    def __init__(self, num_etype, etype_list, batch_size, shuffle=False, pad_percent=0, hint="train"):
         """ padding the first i/10 events on ts, just use the other (10-i)/10 events for training """
         assert 0<=pad_percent<10, "padd should be in [0, 10) "
         self.padding = 0
@@ -172,17 +211,19 @@ class HetMiniBatchSampler(object):
 
 def get_args():
     ### Argument and global variables
-    parser = argparse.ArgumentParser('Interface for THAT experiments on link predictions')
+    parser = argparse.ArgumentParser('Interface for THAN experiments on link predictions')
 
     parser.add_argument('-d', '--data', type=str, default='movielens', help='data sources to use, try twitter, mathoverflow, movielens')
-    parser.add_argument('--bs', type=int, default=500, help='batch_size')
+    parser.add_argument('--bs', type=int, default=200, help='batch_size')
     parser.add_argument('--prefix', type=str, default='THAN', help='prefix to name the checkpoints')
     parser.add_argument('--n_degree', type=int, default=8, help='number of neighbors to sample')
     parser.add_argument('--n_head', type=int, default=4, help='number of heads used in attention layer')
+    parser.add_argument('--n_runs', type=int, default=1, help='number of running')
     parser.add_argument('--n_epoch', type=int, default=30, help='number of epochs')
-    parser.add_argument('--n_layer', type=int, default=2, help='number of network layers')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--n_layer', type=int, default=1, help='number of network layers')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.1, help='dropout probability')
+    parser.add_argument('--beta', type=float, default=1e-2, help='lambda, weight of regularization')
     parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
     parser.add_argument('--n_dim', type=int, default=32, help='Dimentions of the default node embedding')
     parser.add_argument('--e_dim', type=int, default=16, help='Dimentions of the default edge embedding')
@@ -191,6 +232,10 @@ def get_args():
     parser.add_argument('--time', type=str, choices=['time', 'pos', 'empty'], help='how to use time information', default='time')
     parser.add_argument('--uniform', action='store_true', help='take uniform sampling from temporal neighbors')
     parser.add_argument('--shuffle', action='store_true', help='shuffle index for bacth')
+    parser.add_argument('--use_memory', action='store_true', help='shuffle index for bacth')
+    parser.add_argument('--msg_agg', type=str, default='last', choices=['last', 'mean'], help='message aggregator')
+    parser.add_argument('--msg_func', type=str, default='mlp', choices=['mlp', 'id'], help='message function')
+    parser.add_argument('--mem_updater', type=str, default='gru', choices=['gru', 'rnn'], help='memory updater')
     
     try:
         args = parser.parse_args()
@@ -206,6 +251,10 @@ def check_dirs():
         os.mkdir("saved_models")
     if not os.path.exists("saved_checkpoints"):
         os.mkdir("saved_checkpoints")
+    if not os.path.exists("log"):
+        os.mkdir("log")
+    if not os.path.exists("epoch_time"):
+        os.mkdir("epoch_time")
 
 
 def get_logger(name="THAN"):
@@ -228,8 +277,8 @@ def get_logger(name="THAN"):
 def set_random_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    # np.random.seed(seed)
+    # random.seed(seed)
 
 
 """ load data """
@@ -280,14 +329,10 @@ def load_data_with_test_events(dataset, n_dim, e_dim):
     g_train, n_feat, e_feat, etype_ft, desc = _load_base(dataset, n_dim, e_dim)
 
     g_test = pd.read_csv(f'./processed/{dataset}/events_test.csv')
-
-    if dataset == 'movielens':
-        return TemHetGraphData(g_train, n_feat, e_feat, desc['num_node_type'], desc['num_edge_type'], etype_ft), \
-            Events(g_test.u.values, g_test.v.values, g_test.ts.values, g_test.e_idx.values, g_test.e_type.values, g_test.u_type.values, g_test.v_type.values)
-    else:
-        return TemHetGraphData(g_train, n_feat, e_feat, desc['num_node_type'], desc['num_edge_type'], etype_ft), \
-            Events(g_test.u.values, g_test.v.values, g_test.ts.values, g_test.e_idx.values, g_test.e_type.values, g_test.u_type.values, g_test.v_type.values, g_test.label.values)
-
+    
+    g = g_train.append(g_test).sort_values(by="ts").reset_index(drop=True)
+    return TemHetGraphData(g, n_feat, e_feat, desc['num_node_type'], desc['num_edge_type'], etype_ft)
+    
 
 """ split data """
 
@@ -295,11 +340,11 @@ def split_data_train_test(g: TemHetGraphData, test_ratio=0.2):
     test_time = np.quantile(g.ts_l, 1. - test_ratio)
 
     ''' train '''
-    valid_train_flag = g.ts_l <= test_time
+    valid_train_flag = g.ts_l < test_time
     train = g.sample_by_mask(valid_train_flag)
 
     ''' test '''
-    valid_test_flag = g.ts_l > test_time  # total test edges
+    valid_test_flag = g.ts_l >= test_time  # total test edges
     test = g.sample_by_mask(valid_test_flag)
 
     return train, test
@@ -325,10 +370,9 @@ def split_valid_train_nn_test(g: TemHetGraphData, train: TemHetGraphData, test: 
 
 def load_and_split_data_train_test(dataset:str, n_dim=None, e_dim=None, ratio=0.2):
     if dataset == 'movielens':
-        train, test = load_data_with_test_events(dataset, n_dim, e_dim)
-        return train, test
-    
-    g = load_data(dataset, n_dim, e_dim)
+        g = load_data_with_test_events(dataset, n_dim, e_dim)
+    else:
+        g = load_data(dataset, n_dim, e_dim)
     train, test = split_data_train_test(g, ratio)
     return g, train, test
 
@@ -342,7 +386,6 @@ def get_neighbor_finder(data, max_idx, uniform=True, shuffle=False, num_edge_typ
     if shuffle:
         idx = np.random.permutation(len(dst_l))
         dst_l = dst_l[idx] 
-        # e_idx_l = e_idx_l[idx] 
 
     adj_list = [[] for _ in range(max_idx + 1)]
     for src, dst, eidx, ts, etype, utype, vtype in zip(data.src_l, dst_l, e_idx_l, data.ts_l, data.e_type_l, data.u_type_l, data.v_type_l):

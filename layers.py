@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import torch.nn.functional as F
 
-
-""" 
-转移向量投影+多头注意力(TransD+TGAT)
-"""
 
 class HetMatchDecoder(torch.nn.Module):
     def __init__(self, num_etypes, dim, etype_feat=None):
@@ -367,4 +364,55 @@ class AttnModel(nn.Module):
         output = self.merger(output, src)
         
         return output, attn
+
+
+
+
+class GraphMeanEmbedding(nn.Module):
+    """Attention based temporal layers
+    """
+    def __init__(self, feat_dim, edge_dim, time_dim, transfer, n_head=2, dropout=0.1,
+                 num_n_type=1, num_e_type=1):
+        """
+        args:
+          feat_dim: dim for the node features
+          edge_dim: dim for the temporal edge features
+          time_dim: dim for the time encoding
+          attn_mode: choose from 'prod' and 'map'
+          n_head: number of heads in attention
+          dropout: probability of dropping a neural
+          num_n_type: number of node types
+          num_e_type: number of edge types
+        """
+        super(GraphMeanEmbedding, self).__init__()
+        
+        self.linear_1 = torch.nn.Linear(feat_dim + time_dim + edge_dim, feat_dim)
+        self.linear_2 = torch.nn.Linear(feat_dim + feat_dim + time_dim, feat_dim)
+               
+    def forward(self, src, src_t, seq, seq_t, seq_e, seq_etype, seq_utype, seq_vtype, mask):
+        """"Attention based temporal attention forward pass
+        args:
+          src:   float Tensor of shape [B, D]
+          src_t: float Tensor of shape [B, 1, Dt], Dt == D
+          seq:   float Tensor of shape [B, N, D]
+          seq_t: float Tensor of shape [B, N, Dt]
+          seq_e: float Tensor of shape [B, N, De], De == D
+          seq_etype: long Tensorof shape [B, N], value in (0, 1, ...), 0 is default
+          seq_utype: long Tensorof shape [B, N], value in (0, 1, ...), 0 is default
+          seq_vtype: long Tensorof shape [B, N], value in (0, 1, ...), 0 is default
+          mask:  boolean Tensor of shape [B, N], where the true value indicate a null value in the sequence.
+        returns:
+          output: float Tensor of shape [B, D]
+        """
+        neighbors_features = torch.cat([seq, seq_t, seq_e], dim=2)
+        neighbor_embs = self.linear_1(neighbors_features)
+        neighbors_mean = F.relu(torch.mean(neighbor_embs, dim=1))
+
+        source_features = torch.cat([src, src_t.squeeze()], dim=1)
+        source_embedding = torch.cat([neighbors_mean, source_features], dim=1)
+        source_embedding = self.linear_2(source_embedding)
+        
+        return source_embedding, None
+
+
 
